@@ -14,7 +14,7 @@ defmodule MorphRu do
       %MorphRu.Tag{raw: "NOUN,inan,masc sing,nomn", ...}
   """
 
-  alias MorphRu.{Dict, Parse, Prob, Tag}
+  alias MorphRu.{Dict, Parse, Predict, Prob, Tag}
 
   @doc "Parses a word, returning all possible morphological analyses sorted by score."
   def parse(word) when is_binary(word) do
@@ -30,7 +30,11 @@ defmodule MorphRu do
         end)
       end)
 
-    prob_estimator() |> Prob.apply_to_parses(word, parses)
+    if parses == [] do
+      Predict.predict(word)
+    else
+      prob_estimator() |> Prob.apply_to_parses(word, parses)
+    end
   end
 
   @doc "Returns all possible lemmas (normal forms) for a word."
@@ -103,7 +107,8 @@ defmodule MorphRu do
     }
   end
 
-  defp dict do
+  @doc false
+  def dict do
     case :persistent_term.get({__MODULE__, :dict}, nil) do
       nil ->
         dict = Dict.load(dict_path())

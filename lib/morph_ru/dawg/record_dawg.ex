@@ -173,4 +173,11 @@ defmodule MorphRu.Dawg.RecordDAWG do
        ) do
     [{a, b, c} | decode_records(rest, 6)]
   end
+
+  defp decode_records(
+         <<a::big-unsigned-32, b::big-unsigned-16, c::big-unsigned-16, rest::binary>>,
+         8
+       ) do
+    [{a, b, c} | decode_records(rest, 8)]
+  end
 end

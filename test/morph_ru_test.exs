@@ -92,4 +92,40 @@ defmodule MorphRuTest do
       refute MorphRu.word_is_known?("фыва")
     end
   end
+
+  describe "prediction (unknown words)" do
+    test "predicts путинизм as NOUN,masc" do
+      refute MorphRu.word_is_known?("путинизм")
+      parses = MorphRu.parse("путинизм")
+      assert length(parses) > 0
+      [top | _] = parses
+      assert MorphRu.Tag.contains?(top.tag, "NOUN")
+      assert MorphRu.Tag.contains?(top.tag, "masc")
+      assert top.normal_form == "путинизм"
+    end
+
+    test "predicts ковидный as ADJF" do
+      refute MorphRu.word_is_known?("ковидный")
+      parses = MorphRu.parse("ковидный")
+      assert length(parses) > 0
+      [top | _] = parses
+      assert MorphRu.Tag.contains?(top.tag, "ADJF")
+    end
+
+    test "predicts хабр as NOUN" do
+      refute MorphRu.word_is_known?("хабр")
+      parses = MorphRu.parse("хабр")
+      assert length(parses) > 0
+      [top | _] = parses
+      assert MorphRu.Tag.contains?(top.tag, "NOUN")
+    end
+
+    test "prediction score is scaled by 0.5" do
+      parses = MorphRu.parse("путинизм")
+
+      for p <- parses do
+        assert p.score <= 0.5
+      end
+    end
+  end
 end

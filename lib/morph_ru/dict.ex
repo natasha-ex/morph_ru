@@ -13,7 +13,15 @@ defmodule MorphRu.Dict do
 
   alias MorphRu.Dawg.RecordDAWG
 
-  defstruct [:words, :paradigms, :gramtab, :suffixes, :paradigm_prefixes, :meta]
+  defstruct [
+    :words,
+    :paradigms,
+    :gramtab,
+    :suffixes,
+    :paradigm_prefixes,
+    :meta,
+    :prediction_dawgs
+  ]
 
   @type t :: %__MODULE__{
           words: RecordDAWG.t(),
@@ -21,7 +29,8 @@ defmodule MorphRu.Dict do
           gramtab: tuple(),
           suffixes: tuple(),
           paradigm_prefixes: tuple(),
-          meta: map()
+          meta: map(),
+          prediction_dawgs: [RecordDAWG.t()]
         }
 
   @doc "Loads dictionary from the given directory path."
@@ -36,13 +45,28 @@ defmodule MorphRu.Dict do
       meta["compile_options"]["paradigm_prefixes"]
       |> List.to_tuple()
 
+    prediction_dawgs =
+      paradigm_prefixes
+      |> Tuple.to_list()
+      |> Enum.with_index()
+      |> Enum.map(fn {_prefix, i} ->
+        dawg_path = Path.join(path, "prediction-suffixes-#{i}.dawg")
+
+        if File.exists?(dawg_path) do
+          RecordDAWG.load(dawg_path, 8)
+        else
+          nil
+        end
+      end)
+
     %__MODULE__{
       words: words,
       paradigms: paradigms,
       gramtab: gramtab,
       suffixes: suffixes,
       paradigm_prefixes: paradigm_prefixes,
-      meta: meta
+      meta: meta,
+      prediction_dawgs: prediction_dawgs
     }
   end
 
@@ -70,6 +94,26 @@ defmodule MorphRu.Dict do
       {elem(dict.paradigm_prefixes, p), elem(dict.gramtab, t), elem(dict.suffixes, s)}
     end)
   end
+
+  @doc "Builds a Tag struct for a given paradigm and form index."
+  def build_tag(%__MODULE__{} = dict, paradigm_id, form_index) do
+    para = elem(dict.paradigms, paradigm_id) |> Tuple.to_list()
+    n = div(length(para), 3)
+    tag_id = Enum.at(para, n + form_index)
+    tag_str = elem(dict.gramtab, tag_id)
+    MorphRu.Tag.parse(tag_str)
+  end
+
+  @doc "Builds the normal form for a predicted word."
+  def build_normal_form(%__MODULE__{} = dict, paradigm_id, form_index, word) do
+    info = paradigm_info(dict, paradigm_id)
+    form = Enum.at(info, form_index)
+    stem = build_stem(word, form)
+    build_normal_form(stem, info)
+  end
+
+  @doc "Returns the ё/е substitution map."
+  def char_substitutes, do: yo_replaces()
 
   @doc "Extracts the stem from a word given its paradigm info and form index."
   def build_stem(word, {prefix, _tag, suffix}) do
