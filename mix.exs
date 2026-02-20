@@ -2,7 +2,7 @@ defmodule MorphRu.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/dannote/morph_ru"
+  @source_url "https://github.com/natasha-ex/morph_ru"
 
   def project do
     [
@@ -46,8 +46,10 @@ defmodule MorphRu.MixProject do
 
   defp package do
     [
+      maintainers: ["Danila Poyarkov"],
       licenses: ["MIT"],
-      links: %{"GitHub" => @source_url}
+      links: %{"GitHub" => @source_url},
+      files: ~w(lib priv .formatter.exs mix.exs README.md LICENSE)
     ]
   end
 

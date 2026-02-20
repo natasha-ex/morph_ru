@@ -9,8 +9,8 @@ defmodule MorphRu.Predict do
   paradigm prefixes `["", "по", "наи"]`.
   """
 
-  alias MorphRu.{Dict, Parse, Tag}
   alias MorphRu.Dawg.RecordDAWG
+  alias MorphRu.{Dict, Parse, Tag}
 
   @score_multiplier 0.5
 
@@ -75,29 +75,9 @@ defmodule MorphRu.Predict do
       para_data = RecordDAWG.similar_items(dawg, word_end, replaces)
 
       {new_res, new_seen, new_tc} =
-        Enum.reduce(para_data, {res, seen, tc}, fn {fixed_suffix, parses}, {r, s, t} ->
+        Enum.reduce(para_data, {res, seen, tc}, fn {fixed_suffix, parses}, acc ->
           fixed_word = word_start <> fixed_suffix
-
-          Enum.reduce(parses, {r, s, t}, fn {cnt, para_id, form_idx}, {r2, s2, t2} ->
-            tag = Dict.build_tag(dict, para_id, form_idx)
-
-            if productive_tag?(tag) do
-              key = {fixed_word, tag.raw, para_id}
-
-              if MapSet.member?(s2, key) do
-                {r2, s2, :array.set(prefix_id, :array.get(prefix_id, t2) + cnt, t2)}
-              else
-                normal_form = Dict.build_normal_form(dict, para_id, form_idx, fixed_word)
-
-                entry = {cnt, fixed_word, tag, normal_form, prefix_id, para_id, form_idx}
-
-                {[entry | r2], MapSet.put(s2, key),
-                 :array.set(prefix_id, :array.get(prefix_id, t2) + cnt, t2)}
-              end
-            else
-              {r2, s2, t2}
-            end
-          end)
+          collect_parses(parses, fixed_word, prefix_id, dict, acc)
         end)
 
       if :array.get(prefix_id, new_tc) > 1 do
@@ -106,6 +86,31 @@ defmodule MorphRu.Predict do
         {:cont, {new_res, new_seen, new_tc}}
       end
     end)
+  end
+
+  defp collect_parses(parses, fixed_word, prefix_id, dict, acc) do
+    Enum.reduce(parses, acc, fn {cnt, para_id, form_idx}, {r, s, t} ->
+      tag = Dict.build_tag(dict, para_id, form_idx)
+
+      if productive_tag?(tag) do
+        accumulate_parse(cnt, para_id, form_idx, tag, fixed_word, prefix_id, dict, {r, s, t})
+      else
+        {r, s, t}
+      end
+    end)
+  end
+
+  defp accumulate_parse(cnt, para_id, form_idx, tag, fixed_word, prefix_id, dict, {r, s, t}) do
+    key = {fixed_word, tag.raw, para_id}
+
+    if MapSet.member?(s, key) do
+      {r, s, :array.set(prefix_id, :array.get(prefix_id, t) + cnt, t)}
+    else
+      normal_form = Dict.build_normal_form(dict, para_id, form_idx, fixed_word)
+      entry = {cnt, fixed_word, tag, normal_form, prefix_id, para_id, form_idx}
+
+      {[entry | r], MapSet.put(s, key), :array.set(prefix_id, :array.get(prefix_id, t) + cnt, t)}
+    end
   end
 
   @non_productive_tags MapSet.new(~w(NUMR NPRO PRED PREP CONJ PRCL INTJ))

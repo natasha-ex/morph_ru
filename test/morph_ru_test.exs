@@ -97,7 +97,7 @@ defmodule MorphRuTest do
     test "predicts путинизм as NOUN,masc" do
       refute MorphRu.word_is_known?("путинизм")
       parses = MorphRu.parse("путинизм")
-      assert length(parses) > 0
+      assert parses != []
       [top | _] = parses
       assert MorphRu.Tag.contains?(top.tag, "NOUN")
       assert MorphRu.Tag.contains?(top.tag, "masc")
@@ -107,7 +107,7 @@ defmodule MorphRuTest do
     test "predicts ковидный as ADJF" do
       refute MorphRu.word_is_known?("ковидный")
       parses = MorphRu.parse("ковидный")
-      assert length(parses) > 0
+      assert parses != []
       [top | _] = parses
       assert MorphRu.Tag.contains?(top.tag, "ADJF")
     end
@@ -115,7 +115,7 @@ defmodule MorphRuTest do
     test "predicts хабр as NOUN" do
       refute MorphRu.word_is_known?("хабр")
       parses = MorphRu.parse("хабр")
-      assert length(parses) > 0
+      assert parses != []
       [top | _] = parses
       assert MorphRu.Tag.contains?(top.tag, "NOUN")
     end
