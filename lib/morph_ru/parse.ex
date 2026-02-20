@@ -8,12 +8,14 @@ defmodule MorphRu.Parse do
 
   alias MorphRu.Tag
 
-  defstruct [:word, :tag, :normal_form, :score]
+  defstruct [:word, :tag, :normal_form, :score, :paradigm_id, :form_index]
 
   @type t :: %__MODULE__{
           word: String.t(),
           tag: Tag.t(),
           normal_form: String.t(),
-          score: float()
+          score: float(),
+          paradigm_id: non_neg_integer() | nil,
+          form_index: non_neg_integer() | nil
         }
 end

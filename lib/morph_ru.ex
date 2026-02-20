@@ -14,42 +14,28 @@ defmodule MorphRu do
       %MorphRu.Tag{raw: "NOUN,inan,masc sing,nomn", ...}
   """
 
-  alias MorphRu.{Dict, Parse, Tag}
+  alias MorphRu.{Dict, Parse, Prob, Tag}
 
   @doc "Parses a word, returning all possible morphological analyses sorted by score."
   def parse(word) when is_binary(word) do
     dict = dict()
     downcased = String.downcase(word)
 
-    results = Dict.lookup_similar(dict, downcased)
-
     parses =
-      Enum.flat_map(results, fn {found_word, entries} ->
+      dict
+      |> Dict.lookup_similar(downcased)
+      |> Enum.flat_map(fn {found_word, entries} ->
         Enum.map(entries, fn {paradigm_id, form_index} ->
-          info = Dict.paradigm_info(dict, paradigm_id)
-          form_info = Enum.at(info, form_index)
-          stem = Dict.build_stem(found_word, form_info)
-          normal_form = Dict.build_normal_form(stem, info)
-          {_prefix, tag_str, _suffix} = form_info
-
-          %Parse{
-            word: word,
-            tag: Tag.parse(tag_str),
-            normal_form: normal_form,
-            score: 0.0
-          }
+          build_parse(dict, word, found_word, paradigm_id, form_index)
         end)
       end)
 
-    assign_scores(parses)
+    prob_estimator() |> Prob.apply_to_parses(word, parses)
   end
 
   @doc "Returns all possible lemmas (normal forms) for a word."
   def normal_forms(word) when is_binary(word) do
-    word
-    |> parse()
-    |> Enum.map(& &1.normal_form)
-    |> Enum.uniq()
+    word |> parse() |> Enum.map(& &1.normal_form) |> Enum.uniq()
   end
 
   @doc "Returns the most likely tag for a word."
@@ -67,18 +53,54 @@ defmodule MorphRu do
     Dict.lookup(dict, downcased) != []
   end
 
-  defp assign_scores(parses) do
-    count = length(parses)
+  @doc "Inflects a parse to the given set of grammemes."
+  def inflect(%Parse{} = parse, target_grams) when is_list(target_grams) do
+    inflect(parse, MapSet.new(target_grams))
+  end
 
-    if count == 0 do
-      []
-    else
-      score = 1.0 / count
+  def inflect(%Parse{} = parse, %MapSet{} = target_grams) do
+    dict = dict()
+    paradigm_id = parse.paradigm_id
+    info = Dict.paradigm_info(dict, paradigm_id)
+    stem = Dict.build_stem(String.downcase(parse.word), Enum.at(info, parse.form_index))
 
-      parses
-      |> Enum.map(&%{&1 | score: score})
-      |> Enum.sort_by(& &1.score, :desc)
+    info
+    |> Enum.with_index()
+    |> Enum.find(fn {{_prefix, tag_str, _suffix}, _idx} ->
+      form_grams = Tag.parse(tag_str).grammemes
+      MapSet.subset?(target_grams, form_grams)
+    end)
+    |> case do
+      nil ->
+        nil
+
+      {{prefix, tag_str, suffix}, idx} ->
+        %Parse{
+          word: prefix <> stem <> suffix,
+          tag: Tag.parse(tag_str),
+          normal_form: parse.normal_form,
+          score: 1.0,
+          paradigm_id: paradigm_id,
+          form_index: idx
+        }
     end
+  end
+
+  defp build_parse(dict, original_word, found_word, paradigm_id, form_index) do
+    info = Dict.paradigm_info(dict, paradigm_id)
+    form_info = Enum.at(info, form_index)
+    stem = Dict.build_stem(found_word, form_info)
+    normal_form = Dict.build_normal_form(stem, info)
+    {_prefix, tag_str, _suffix} = form_info
+
+    %Parse{
+      word: original_word,
+      tag: Tag.parse(tag_str),
+      normal_form: normal_form,
+      score: 0.0,
+      paradigm_id: paradigm_id,
+      form_index: form_index
+    }
   end
 
   defp dict do
@@ -90,6 +112,19 @@ defmodule MorphRu do
 
       dict ->
         dict
+    end
+  end
+
+  defp prob_estimator do
+    case :persistent_term.get({__MODULE__, :prob}, nil) do
+      nil ->
+        path = Path.join(dict_path(), "p_t_given_w.intdawg")
+        prob = Prob.load(path)
+        :persistent_term.put({__MODULE__, :prob}, prob)
+        prob
+
+      prob ->
+        prob
     end
   end
 

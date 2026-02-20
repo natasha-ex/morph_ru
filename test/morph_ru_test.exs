@@ -43,7 +43,42 @@ defmodule MorphRuTest do
       tag = MorphRu.tag("договор")
       assert tag != nil
       assert MorphRu.Tag.contains?(tag, "NOUN")
-      assert MorphRu.Tag.contains?(tag, "nomn")
+      assert MorphRu.Tag.contains?(tag, "masc")
+    end
+  end
+
+  describe "scoring" do
+    test "стали VERB gets highest score" do
+      [top | _] = MorphRu.parse("стали")
+      assert top.normal_form == "стать"
+      assert MorphRu.Tag.contains?(top.tag, "VERB")
+      assert top.score > 0.9
+    end
+
+    test "scores match Python pymorphy3" do
+      results = MorphRu.parse("стали")
+      verb = Enum.find(results, &(&1.normal_form == "стать"))
+      assert_in_delta verb.score, 0.975342, 0.001
+    end
+  end
+
+  describe "inflect/2" do
+    test "inflects дом to genitive" do
+      [parse | _] = MorphRu.parse("дом")
+      result = MorphRu.inflect(parse, ["gent"])
+      assert result.word == "дома"
+    end
+
+    test "inflects дом to plural dative" do
+      [parse | _] = MorphRu.parse("дом")
+      result = MorphRu.inflect(parse, ["plur", "datv"])
+      assert result.word == "домам"
+    end
+
+    test "returns nil for impossible inflection" do
+      [parse | _] = MorphRu.parse("стол")
+      result = MorphRu.inflect(parse, ["femn"])
+      assert result == nil
     end
   end
 
