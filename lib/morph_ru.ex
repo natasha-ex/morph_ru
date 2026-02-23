@@ -14,7 +14,7 @@ defmodule MorphRu do
       %MorphRu.Tag{raw: "NOUN,inan,masc sing,nomn", ...}
   """
 
-  alias MorphRu.{Dict, Parse, Predict, Prob, Tag}
+  alias MorphRu.{Dict, Parse, Predict, Prob}
 
   @doc "Parses a word, returning all possible morphological analyses sorted by score."
   def parse(word) when is_binary(word) do
@@ -24,11 +24,7 @@ defmodule MorphRu do
     parses =
       dict
       |> Dict.lookup_similar(downcased)
-      |> Enum.flat_map(fn {found_word, entries} ->
-        Enum.map(entries, fn {paradigm_id, form_index} ->
-          build_parse(dict, word, found_word, paradigm_id, form_index)
-        end)
-      end)
+      |> build_parses(dict, word)
 
     if parses == [] do
       Predict.predict(word)
@@ -65,42 +61,61 @@ defmodule MorphRu do
   def inflect(%Parse{} = parse, %MapSet{} = target_grams) do
     dict = dict()
     paradigm_id = parse.paradigm_id
-    info = Dict.paradigm_info(dict, paradigm_id)
-    stem = Dict.build_stem(String.downcase(parse.word), Enum.at(info, parse.form_index))
+    form = Dict.form_info(dict, paradigm_id, parse.form_index)
+    stem = Dict.build_stem(String.downcase(parse.word), form)
 
-    info
-    |> Enum.with_index()
-    |> Enum.find(fn {{_prefix, tag_str, _suffix}, _idx} ->
-      form_grams = Tag.parse(tag_str).grammemes
-      MapSet.subset?(target_grams, form_grams)
-    end)
+    paradigm_id
+    |> find_matching_form(dict, target_grams)
     |> case do
       nil ->
         nil
 
-      {{prefix, tag_str, suffix}, idx} ->
+      {form_index, tag} ->
+        {prefix, _tag_str, suffix} = Dict.form_info(dict, paradigm_id, form_index)
+
         %Parse{
           word: prefix <> stem <> suffix,
-          tag: Tag.parse(tag_str),
+          tag: tag,
           normal_form: parse.normal_form,
           score: 1.0,
           paradigm_id: paradigm_id,
-          form_index: idx
+          form_index: form_index
         }
     end
   end
 
+  defp find_matching_form(paradigm_id, dict, target_grams) do
+    forms = Dict.paradigm_info(dict, paradigm_id)
+
+    forms
+    |> Enum.with_index()
+    |> Enum.find_value(fn {{_prefix, tag_str, _suffix}, idx} ->
+      tag = Dict.get_tag(dict, tag_str)
+
+      if MapSet.subset?(target_grams, tag.grammemes) do
+        {idx, tag}
+      end
+    end)
+  end
+
+  defp build_parses(similar_items, dict, original_word) do
+    Enum.flat_map(similar_items, fn {found_word, entries} ->
+      Enum.map(entries, fn {paradigm_id, form_index} ->
+        build_parse(dict, original_word, found_word, paradigm_id, form_index)
+      end)
+    end)
+  end
+
   defp build_parse(dict, original_word, found_word, paradigm_id, form_index) do
-    info = Dict.paradigm_info(dict, paradigm_id)
-    form_info = Enum.at(info, form_index)
+    form_info = Dict.form_info(dict, paradigm_id, form_index)
     stem = Dict.build_stem(found_word, form_info)
-    normal_form = Dict.build_normal_form(stem, info)
+    {nf_prefix, nf_suffix} = Dict.normal_form_parts(dict, paradigm_id)
     {_prefix, tag_str, _suffix} = form_info
 
     %Parse{
       word: original_word,
-      tag: Tag.parse(tag_str),
-      normal_form: normal_form,
+      tag: Dict.get_tag(dict, tag_str),
+      normal_form: nf_prefix <> stem <> nf_suffix,
       score: 0.0,
       paradigm_id: paradigm_id,
       form_index: form_index

@@ -20,7 +20,9 @@ defmodule MorphRu.Dict do
     :suffixes,
     :paradigm_prefixes,
     :meta,
-    :prediction_dawgs
+    :prediction_dawgs,
+    :resolved_paradigms,
+    :tags
   ]
 
   @type t :: %__MODULE__{
@@ -30,7 +32,9 @@ defmodule MorphRu.Dict do
           suffixes: tuple(),
           paradigm_prefixes: tuple(),
           meta: map(),
-          prediction_dawgs: [RecordDAWG.t()]
+          prediction_dawgs: [RecordDAWG.t()],
+          resolved_paradigms: tuple(),
+          tags: %{String.t() => MorphRu.Tag.t()}
         }
 
   @doc "Loads dictionary from the given directory path."
@@ -59,6 +63,9 @@ defmodule MorphRu.Dict do
         end
       end)
 
+    tags = resolve_tags(gramtab)
+    resolved = resolve_paradigms(paradigms, paradigm_prefixes, gramtab, suffixes)
+
     %__MODULE__{
       words: words,
       paradigms: paradigms,
@@ -66,7 +73,9 @@ defmodule MorphRu.Dict do
       suffixes: suffixes,
       paradigm_prefixes: paradigm_prefixes,
       meta: meta,
-      prediction_dawgs: prediction_dawgs
+      prediction_dawgs: prediction_dawgs,
+      resolved_paradigms: resolved,
+      tags: tags
     }
   end
 
@@ -81,46 +90,49 @@ defmodule MorphRu.Dict do
     RecordDAWG.similar_items(words, word, replaces)
   end
 
-  @doc "Builds paradigm info: list of `{prefix, tag, suffix}` for each form."
-  def paradigm_info(%__MODULE__{} = dict, paradigm_id) do
-    values = elem(dict.paradigms, paradigm_id) |> Tuple.to_list()
-    n = div(length(values), 3)
-    {suffix_ids, rest} = Enum.split(values, n)
-    {tag_ids, prefix_ids} = Enum.split(rest, n)
+  @doc "Returns the resolved `{prefix, tag_str, suffix}` for a single form."
+  def form_info(%__MODULE__{resolved_paradigms: resolved}, paradigm_id, form_index) do
+    elem(elem(resolved, paradigm_id), form_index)
+  end
 
-    [suffix_ids, tag_ids, prefix_ids]
-    |> Enum.zip()
-    |> Enum.map(fn {s, t, p} ->
-      {elem(dict.paradigm_prefixes, p), elem(dict.gramtab, t), elem(dict.suffixes, s)}
-    end)
+  @doc "Returns the `{prefix, suffix}` of form 0 (normal form) for a paradigm."
+  def normal_form_parts(%__MODULE__{resolved_paradigms: resolved}, paradigm_id) do
+    {prefix, _tag_str, suffix} = elem(elem(resolved, paradigm_id), 0)
+    {prefix, suffix}
+  end
+
+  @doc "Looks up a pre-parsed Tag struct by tag string."
+  def get_tag(%__MODULE__{tags: tags}, tag_str) do
+    Map.fetch!(tags, tag_str)
+  end
+
+  @doc "Builds paradigm info: list of `{prefix, tag, suffix}` for each form."
+  def paradigm_info(%__MODULE__{resolved_paradigms: resolved}, paradigm_id) do
+    resolved |> elem(paradigm_id) |> Tuple.to_list()
   end
 
   @doc "Builds a Tag struct for a given paradigm and form index."
   def build_tag(%__MODULE__{} = dict, paradigm_id, form_index) do
-    para = elem(dict.paradigms, paradigm_id) |> Tuple.to_list()
-    n = div(length(para), 3)
-    tag_id = Enum.at(para, n + form_index)
-    tag_str = elem(dict.gramtab, tag_id)
-    MorphRu.Tag.parse(tag_str)
+    {_prefix, tag_str, _suffix} = form_info(dict, paradigm_id, form_index)
+    get_tag(dict, tag_str)
   end
 
   @doc "Builds the normal form for a predicted word."
   def build_normal_form(%__MODULE__{} = dict, paradigm_id, form_index, word) do
-    info = paradigm_info(dict, paradigm_id)
-    form = Enum.at(info, form_index)
+    form = form_info(dict, paradigm_id, form_index)
     stem = build_stem(word, form)
-    build_normal_form(stem, info)
+    {nf_prefix, nf_suffix} = normal_form_parts(dict, paradigm_id)
+    nf_prefix <> stem <> nf_suffix
   end
 
   @doc "Returns the ё/е substitution map."
   def char_substitutes, do: yo_replaces()
 
-  @doc "Extracts the stem from a word given its paradigm info and form index."
+  @doc "Extracts the stem from a word given its form info `{prefix, _tag, suffix}`."
   def build_stem(word, {prefix, _tag, suffix}) do
     prefix_len = byte_size(prefix)
     suffix_len = byte_size(suffix)
-    word_len = byte_size(word)
-    stem_len = word_len - prefix_len - suffix_len
+    stem_len = byte_size(word) - prefix_len - suffix_len
 
     if stem_len > 0 do
       binary_part(word, prefix_len, stem_len)
@@ -129,10 +141,36 @@ defmodule MorphRu.Dict do
     end
   end
 
-  @doc "Builds the normal form from a stem and the first form in the paradigm."
-  def build_normal_form(stem, paradigm_info) do
-    {nf_prefix, _nf_tag, nf_suffix} = hd(paradigm_info)
+  @doc "Builds the normal form from a stem and paradigm info list."
+  def build_normal_form(stem, [first | _]) do
+    {nf_prefix, _nf_tag, nf_suffix} = first
     nf_prefix <> stem <> nf_suffix
+  end
+
+  defp resolve_tags(gramtab) do
+    for i <- 0..(tuple_size(gramtab) - 1), into: %{} do
+      tag_str = elem(gramtab, i)
+      {tag_str, MorphRu.Tag.parse(tag_str)}
+    end
+  end
+
+  defp resolve_paradigms(paradigms, paradigm_prefixes, gramtab, suffixes) do
+    for i <- 0..(tuple_size(paradigms) - 1) do
+      resolve_one_paradigm(elem(paradigms, i), paradigm_prefixes, gramtab, suffixes)
+    end
+    |> List.to_tuple()
+  end
+
+  defp resolve_one_paradigm(para, paradigm_prefixes, gramtab, suffixes) do
+    n = div(tuple_size(para), 3)
+
+    for j <- 0..(n - 1) do
+      suffix_id = elem(para, j)
+      tag_id = elem(para, n + j)
+      prefix_id = elem(para, 2 * n + j)
+      {elem(paradigm_prefixes, prefix_id), elem(gramtab, tag_id), elem(suffixes, suffix_id)}
+    end
+    |> List.to_tuple()
   end
 
   defp load_json(path) do

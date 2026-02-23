@@ -2,7 +2,7 @@
 
 Russian morphological analyzer for Elixir. Lemmatizes, POS-tags, and inflects Russian words using the [OpenCorpora](http://opencorpora.org/) dictionary.
 
-Elixir port of [pymorphy2](https://github.com/pymorphy2/pymorphy2). Ships with the full 390K+ word dictionary. 3.1× faster than pymorphy3.
+Elixir port of [pymorphy2](https://github.com/pymorphy2/pymorphy2). Ships with the full 390K+ word dictionary. 6.8× faster than pymorphy3.
 
 ## Installation
 

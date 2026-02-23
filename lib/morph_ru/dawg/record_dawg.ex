@@ -155,9 +155,20 @@ defmodule MorphRu.Dawg.RecordDAWG do
         Enum.reverse(acc)
 
       {completer, key_bytes, _value} ->
-        record = key_bytes |> String.trim() |> Base.decode64!()
+        trimmed = trim_trailing(key_bytes)
+        record = Base.decode64!(trimmed)
         values = decode_records(record, record_size)
         collect_loop(completer, record_size, values ++ acc)
+    end
+  end
+
+  defp trim_trailing(bin) do
+    size = byte_size(bin)
+
+    if size > 0 and :binary.last(bin) == ?\n do
+      binary_part(bin, 0, size - 1)
+    else
+      bin
     end
   end
 
